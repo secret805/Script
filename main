@@ -1,0 +1,185 @@
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+
+local GetBridge = require(ReplicatedStorage.util.GetBridge)
+local GetPlotModel = require(ReplicatedStorage.util.GetPlotModel)
+local BuildingsConfig = require(ReplicatedStorage.shared.config.BuildingsConfig)
+
+local CollectResourcesBridge = GetBridge("CollectResources")
+local SellAllBridge = GetBridge("SellAll")
+
+local AutoCollectEnabled = false
+local AutoSellEnabled = false
+
+local function getPlotBuildings()
+    local plot = GetPlotModel(LocalPlayer)
+    if not plot then return nil end
+    local plotFolder = plot:FindFirstChild("Plot")
+    if not plotFolder then return nil end
+    return plotFolder:FindFirstChild("Buildings")
+end
+
+local function hasResourcesToCollect(building)
+    local resources = building:GetAttribute("ResourcesToCollect")
+    if resources and resources > 0 then
+        return true
+    end
+
+    for attrName, attrValue in pairs(building:GetAttributes()) do
+        if type(attrValue) == "number" and attrValue > 0 then
+            local cfg = BuildingsConfig[attrName]
+            if not cfg then
+                for buildingKey, buildingData in pairs(BuildingsConfig) do
+                    if type(buildingData) == "table" then
+                        if buildingData.magnetAttributeName == attrName or string.gsub(buildingKey, " ", "") == attrName then
+                            cfg = buildingData
+                            break
+                        end
+                    end
+                end
+            end
+            if cfg and (cfg.GrownResource or cfg.Type == "CloneFacility") then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function shouldCollectBuilding(building)
+    local buildingType = building:GetAttribute("type")
+    local buildingName = building.Name
+
+    if buildingType == "Farm" or buildingType == "GemMine" or buildingType == "CloneFacility" then
+        return true
+    end
+    if buildingType == "Storage" or buildingName == "Vault" then
+        return true
+    end
+    if buildingType == "Transport" then
+        return true
+    end
+
+    return false
+end
+
+local function autoCollect()
+    local buildings = getPlotBuildings()
+    if not buildings then return end
+
+    for _, building in ipairs(buildings:GetChildren()) do
+        if shouldCollectBuilding(building) and hasResourcesToCollect(building) then
+            pcall(function()
+                CollectResourcesBridge:Fire(building)
+            end)
+        end
+    end
+end
+
+local function autoSell()
+    pcall(function()
+        SellAllBridge:Fire()
+    end)
+end
+
+local Window = Fluent:CreateWindow({
+    Title = "Mini War Script FREE",
+    SubTitle = "",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(540, 400),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Auto Collect", Icon = "leaf" }),
+    Sell = Window:AddTab({ Title = "Auto Sell", Icon = "dollar-sign" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+}
+
+Tabs.Main:AddParagraph({
+    Title = "Auto Collect",
+    Content = "Automatically collects resources from all Farms, Storage, Transport, and Vault buildings on your plot."
+})
+
+Tabs.Main:AddToggle("AutoCollect", {
+    Title = "Enable Auto Collect",
+    Default = false
+}):OnChanged(function(value)
+    AutoCollectEnabled = value
+end)
+
+Tabs.Main:AddButton({
+    Title = "Collect Once Now",
+    Description = "Manually trigger one collection pass",
+    Callback = function()
+        autoCollect()
+        Fluent:Notify({
+            Title = "Mini War Script",
+            Content = "Collected from all eligible buildings",
+            Duration = 3
+        })
+    end
+})
+
+Tabs.Sell:AddParagraph({
+    Title = "Auto Sell",
+    Content = "Automatically sells all your crops and resources for money."
+})
+
+Tabs.Sell:AddToggle("AutoSell", {
+    Title = "Enable Auto Sell",
+    Default = false
+}):OnChanged(function(value)
+    AutoSellEnabled = value
+end)
+
+Tabs.Sell:AddButton({
+    Title = "Sell All Crops Now",
+    Description = "Manually sell all crops once",
+    Callback = function()
+        autoSell()
+        Fluent:Notify({
+            Title = "Mini War Script",
+            Content = "Sold all crops",
+            Duration = 3
+        })
+    end
+})
+
+InterfaceManager:SetLibrary(Fluent)
+InterfaceManager:SetFolder("MiniWarScript")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "Mini War Script FREE",
+    Content = "Loaded",
+    Duration = 3
+})
+
+task.spawn(function()
+    while true do
+        if AutoCollectEnabled then
+            pcall(autoCollect)
+        end
+        task.wait(0.1)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoSellEnabled then
+            pcall(autoSell)
+        end
+        task.wait(0.1)
+    end
+end)
